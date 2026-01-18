@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SGPA & CGPA Calculator</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Roboto, sans-serif; margin: 24px; max-width: 900px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    th, td { padding: 6px 8px; border: 1px solid #ddd; text-align: left; }
+    input[type="number"] { width: 80px; }
+    select { width: 100px; }
+    button { margin: 6px 6px 6px 0; }
+    .sem-list { margin-top: 12px; }
+    .small { font-size: 0.9em; color: #555; }
+  </style>
+</head>
+<body>
+  <h1>SGPA & CGPA Calculator</h1>
+  <p class="small">Enter courses (credits & grade). Click "Calculate SGPA". Save semester to compute CGPA. Data is saved locally in your browser.</p>
+
+  <table id="courses-table" aria-label="courses">
+    <thead>
+      <tr>
+        <th>Course</th>
+        <th>Credits</th>
+        <th>Grade</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="courses-body">
+      <tr>
+        <td><input placeholder="Course 1" /></td>
+        <td><input type="number" min="0" step="0.5" value="3" /></td>
+        <td>
+          <select>
+            <option value="10">A+</option>
+            <option value="9">A</option>
+            <option value="8">B+</option>
+            <option value="7">B</option>
+            <option value="6">C</option>
+            <option value="5">D</option>
+            <option value="0">F</option>
+          </select>
+        </td>
+        <td><button class="remove-row">Remove</button></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <button id="add-row">Add course</button>
+  <button id="calc-sgpa">Calculate SGPA</button>
+  <span id="sgpa-output" style="font-weight:bold;margin-left:12px;"></span>
+
+  <hr/>
+
+  <div>
+    <input id="semester-name" placeholder="Semester name (e.g. Sem 1)" />
+    <button id="add-semester">Add semester (save SGPA)</button>
+    <button id="save-courses">Save current courses</button>
+    <button id="load-courses">Load saved courses</button>
+  </div>
+
+  <div class="sem-list">
+    <h3>Saved semesters</h3>
+    <table id="semesters-table">
+      <thead><tr><th>Semester</th><th>Total Credits</th><th>SGPA</th><th></th></tr></thead>
+      <tbody id="semesters-body"></tbody>
+    </table>
+
+    <button id="calc-cgpa">Calculate CGPA</button>
+    <span id="cgpa-output" style="font-weight:bold;margin-left:12px;"></span>
+    <button id="clear-semesters">Clear semesters</button>
+  </div>
+
+  <script>
+    // Basic 10-point mapping is encoded in the <select> values above.
+    const coursesBody = document.getElementById('courses-body');
+    const addRowBtn = document.getElementById('add-row');
+    const calcSgpaBtn = document.getElementById('calc-sgpa');
+    const sgpaOutput = document.getElementById('sgpa-output');
+    const semesterNameInput = document.getElementById('semester-name');
+    const addSemesterBtn = document.getElementById('add-semester');
+    const semestersBody = document.getElementById('semesters-body');
+    const calcCgpaBtn = document.getElementById('calc-cgpa');
+    const cgpaOutput = document.getElementById('cgpa-output');
+    const clearSemBtn = document.getElementById('clear-semesters');
+    const saveCoursesBtn = document.getElementById('save-courses');
+    const loadCoursesBtn = document.getElementById('load-courses');
+
+    const STORAGE_KEY_SEMS = 'sgpa_calculator_semesters_v1';
+    const STORAGE_KEY_COURSES = 'sgpa_calculator_courses_v1';
+
+    function makeRow(course = {name:'', credits:3, gp:10}) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input placeholder="Course" value="${escapeHtml(course.name)}" /></td>
+        <td><input type="number" min="0" step="0.5" value="${course.credits}" /></td>
+        <td>
+          <select>
+            <option value="10">A+</option>
+            <option value="9">A</option>
+            <option value="8">B+</option>
+            <option value="7">B</option>
+            <option value="6">C</option>
+            <option value="5">D</option>
+            <option value="0">F</option>
+          </select>
+        </td>
+        <td><button class="remove-row">Remove</button></td>
+      `;
+      const select = tr.querySelector('select');
+      select.value = String(course.gp || 10);
+      return tr;
+    }
+
+    addRowBtn.addEventListener('click', () => {
+      coursesBody.appendChild(makeRow());
+    });
+
+    coursesBody.addEventListener('click', e => {
+      if (e.target.matches('.remove-row')) {
+        const row = e.target.closest('tr');
+        if (row) row.remove();
+      }
+    });
+
+    function calculateSGPA() {
+      const rows = Array.from(coursesBody.querySelectorAll('tr'));
+      let totalCredits = 0;
+      let weightedSum = 0;
+      for (const r of rows) {
+        const creditInput = r.querySelector('input[type="number"]');
+        const gradeSelect = r.querySelector('select');
+        const credits = parseFloat(creditInput.value) || 0;
+        const gp = parseFloat(gradeSelect.value) || 0;
+        totalCredits += credits;
+        weightedSum += credits * gp;
+      }
+      if (totalCredits === 0) return null;
+      return { sgpa: weightedSum / totalCredits, totalCredits };
+    }
+
+    calcSgpaBtn.addEventListener('click', () => {
+      const result = calculateSGPA();
+      if (!result) {
+        sgpaOutput.textContent = "Enter credits (total > 0).";
+        return;
+      }
+      sgpaOutput.textContent = `SGPA = ${result.sgpa.toFixed(3)} (Credits: ${result.totalCredits})`;
+    });
+
+    addSemesterBtn.addEventListener('click', () => {
+      const result = calculateSGPA();
+      if (!result) {
+        alert('Calculate SGPA first and ensure total credits > 0.');
+        return;
+      }
+      const semName = semesterNameInput.value.trim() || `Sem ${seminalsNext()}`;
+      const sem = { name: semName, sgpa: Number(result.sgpa.toFixed(3)), credits: result.totalCredits };
+      appendSemesterRow(sem);
+      saveSemestersToStorage();
+      semesterNameInput.value = '';
+      sgpaOutput.textContent = '';
+    });
+
+    function seminalsNext() {
+      return semestersBody.querySelectorAll('tr').length + 1;
+    }
+
+    function appendSemesterRow(sem) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${escapeHtml(sem.name)}</td><td>${sem.credits}</td><td>${sem.sgpa.toFixed(3)}</td><td><button class="remove-sem">Remove</button></td>`;
+      semestersBody.appendChild(tr);
+    }
+
+    semestersBody.addEventListener('click', e => {
+      if (e.target.matches('.remove-sem')) {
+        e.target.closest('tr').remove();
+        saveSemestersToStorage();
+      }
+    });
+
+    calcCgpaBtn.addEventListener('click', () => {
+      const rows = Array.from(semestersBody.querySelectorAll('tr'));
+      if (rows.length === 0) {
+        cgpaOutput.textContent = 'No semesters saved.';
+        return;
+      }
+      let totalCredits = 0;
+      let weighted = 0;
+      for (const r of rows) {
+        const credits = parseFloat(r.children[1].textContent) || 0;
+        const sgpa = parseFloat(r.children[2].textContent) || 0;
+        totalCredits += credits;
+        weighted += credits * sgpa;
+      }
+      if (totalCredits === 0) {
+        cgpaOutput.textContent = 'Semester credits sum to 0.';
+        return;
+      }
+      cgpaOutput.textContent = `CGPA = ${(weighted / totalCredits).toFixed(3)} (Total credits: ${totalCredits})`;
+    });
+
+    clearSemBtn.addEventListener('click', () => {
+      if (confirm('Clear all saved semesters?')) {
+        semestersBody.innerHTML = '';
+        saveSemestersToStorage();
+        cgpaOutput.textContent = '';
+      }
+    });
+
+    saveCoursesBtn.addEventListener('click', () => {
+      const rows = Array.from(coursesBody.querySelectorAll('tr'));
+      const data = rows.map(r => {
+        return {
+          name: r.querySelector('input').value || '',
+          credits: Number(r.querySelector('input[type="number"]').value) || 0,
+          gp: Number(r.querySelector('select').value) || 0
+        };
+      });
+      localStorage.setItem(STORAGE_KEY_COURSES, JSON.stringify(data));
+      alert('Current courses saved in browser storage.');
+    });
+
+    loadCoursesBtn.addEventListener('click', () => {
+      const raw = localStorage.getItem(STORAGE_KEY_COURSES');
+      if (!raw) { alert('No saved courses in browser storage.'); return; }
+      try {
+        const data = JSON.parse(raw);
+        coursesBody.innerHTML = '';
+        data.forEach(c => coursesBody.appendChild(makeRow(c)));
+      } catch (e) {
+        alert('Failed to load saved courses.');
+      }
+    });
+
+    function saveSemestersToStorage() {
+      const rows = Array.from(semestersBody.querySelectorAll('tr'));
+      const data = rows.map(r => {
+        return { name: r.children[0].textContent, credits: Number(r.children[1].textContent), sgpa: Number(r.children[2].textContent) };
+      });
+      localStorage.setItem(STORAGE_KEY_SEMS, JSON.stringify(data));
+    }
+
+    function loadSemestersFromStorage() {
+      const raw = localStorage.getItem(STORAGE_KEY_SEMS);
+      if (!raw) return;
+      try {
+        const data = JSON.parse(raw);
+        semestersBody.innerHTML = '';
+        data.forEach(sem => appendSemesterRow(sem));
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+      return String(text).replace(/[&<>"']/g, m => map[m]);
+    }
+
+    // load saved semesters on start
+    loadSemestersFromStorage();
+  </script>
+</body>
+</html>
